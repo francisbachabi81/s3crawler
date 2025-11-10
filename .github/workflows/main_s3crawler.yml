@@ -6,35 +6,37 @@ on:
   workflow_dispatch:
 
 env:
+  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.'   # project root (where host.json lives)
   PYTHON_VERSION: '3.11'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    permissions: { contents: read }
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # Optional: only for tests/lint; do not deploy this venv
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      # (Optional) Only if you run tests; not used for packaging
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      # (Optional) run tests here
-
-      - name: Create deployment zip (function_app only)
+      - name: Sanity check structure
         run: |
-          cd function_app
-          zip -r ../release.zip . -x '*__pycache__/*' '*.venv/*' 'venv/*' '.git/*'
-          cd ..
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+          pwd
+          ls -la
+          echo "Looking for host.json & requirements.txt:"
+          find . -maxdepth 2 -name host.json -o -name requirements.txt
+
+      - name: Create deployment zip (root)
+        run: |
+          zip -r release.zip . \
+            -x '.git/*' '.github/*' 'venv/*' '**/__pycache__/*' '**/.venv/*'
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: drop
+          name: python-app
           path: release.zip
 
   deploy:
@@ -45,28 +47,31 @@ jobs:
       contents: read
 
     steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: drop
+          name: python-app
 
-      - name: Azure login (OIDC)
-        uses: azure/login@v2
+      - name: Unzip artifact
+        run: |
+          unzip release.zip
+          rm release.zip
+
+      - uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_737D9B3254BD4EBFA9902D0C72C3657A }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_3E36C19910614B1487159E613D28A2AE }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_3C380D757EA749868F28D9C78CFFB752 }}
 
-      - name: Enable remote build (Oryx)
+      - name: Ensure remote build (one-time safe)
         run: |
           az functionapp config appsettings set \
             --resource-group "rg-core-office" \
             --name "s3crawler" \
             --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true
 
-      - name: Deploy to Azure Functions (zip)
+      - name: Deploy to Azure Functions
         uses: Azure/functions-action@v1
         with:
           app-name: 's3crawler'
           slot-name: 'Production'
-          package: 'release.zip'
+          package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
