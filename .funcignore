@@ -1,0 +1,9 @@
+.git/
+.github/
+.vscode/
+__pycache__/
+*.pyc
+*.pyo
+local.settings.json
+venv/
+.venv/
