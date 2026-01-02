@@ -6,3 +6,5 @@ venv/
 .venv/
 local.settings.json
 /.idea
+
+.python_packages
